@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>String Art Generator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>String Art Generator</h1>
+
+<div id="controls">
+    <input type="file" id="fileInput" accept="image/png, image/jpeg">
+    <label for="pinCount">Pins:</label>
+    <input type="number" id="pinCount" value="120" min="4">
+    <label for="maxLines">Max Lines:</label>
+    <input type="number" id="maxLines" value="2000" min="1">
+    <label for="contrast">Contrast:</label>
+    <input type="range" id="contrast" min="0.5" max="2" step="0.01" value="1">
+    <label for="brightness">Brightness:</label>
+    <input type="range" id="brightness" min="-1" max="1" step="0.01" value="0">
+    <button id="processBtn">Generate String Art</button>
+</div>
+
+<div id="progressContainer">
+    <progress id="progressBar" value="0" max="100"></progress>
+</div>
+
+<div id="preview">
+    <canvas id="canvasLow" width="800" height="800"></canvas>
+    <canvas id="canvasMedium" width="800" height="800"></canvas>
+    <canvas id="canvasHigh" width="800" height="800"></canvas>
+</div>
+
+<div id="exportButtons">
+    <button id="exportCsvBtn">Export Line Sequences CSV</button>
+    <button id="exportPngBtn">Export High Quality PNG</button>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
