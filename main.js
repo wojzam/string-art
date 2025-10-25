@@ -1,81 +1,99 @@
 import { ImageProcessor } from './core/ImageProcessor.js';
 import { PinsGenerator } from './core/PinsGenerator.js';
-import { StringArtEngine } from './core/StringArtEngine.js';
 import { FileUtils } from './utils/FileUtils.js';
 
-const fileInput=document.getElementById('fileInput');
-const pinCountInput=document.getElementById('pinCount');
-const maxLinesInput=document.getElementById('maxLines');
-const contrastInput=document.getElementById('contrast');
-const brightnessInput=document.getElementById('brightness');
-const processBtn=document.getElementById('processBtn');
-const exportCsvBtn=document.getElementById('exportCsvBtn');
-const exportPngBtn=document.getElementById('exportPngBtn');
-const progressBar=document.getElementById('progressBar');
+const fileInput = document.getElementById('fileInput');
+const pinCountInput = document.getElementById('pinCount');
+const maxLinesInput = document.getElementById('maxLines');
+const contrastInput = document.getElementById('contrast');
+const brightnessInput = document.getElementById('brightness');
+const generateBtn = document.getElementById('generateBtn');
+const progressBar = document.getElementById('progressBar');
 
-const canvasLow=document.getElementById('canvasLow');
-const canvasMedium=document.getElementById('canvasMedium');
-const canvasHigh=document.getElementById('canvasHigh');
+const canvasTarget = document.getElementById('canvasTarget');
+const canvasLow = document.getElementById('canvasLow');
+const canvasMedium = document.getElementById('canvasMedium');
+const canvasHigh = document.getElementById('canvasHigh');
+const qualitySelect = document.getElementById('qualitySelect');
+const exportCsvBtn = document.getElementById('exportCsvBtn');
 
-let loadedImage=null;
-let processedCanvas=null;
-let lineSequence=[];
+let loadedImage = null;
+let processedCanvas = null;
+let pins = [], lineSequence = [];
+let worker = null;
 
-fileInput.addEventListener('change',async ()=>{
-    if(fileInput.files.length===0) return;
+async function updatePreview() {
+    if (!loadedImage) return;
+    processedCanvas = ImageProcessor.process(loadedImage, 400,
+        parseFloat(contrastInput.value), parseFloat(brightnessInput.value));
+    const ctx = canvasTarget.getContext('2d');
+    ctx.clearRect(0, 0, 400, 400);
+    ctx.drawImage(processedCanvas, 0, 0);
+}
+
+fileInput.addEventListener('change', async () => {
+    if (fileInput.files.length === 0) return;
     loadedImage = await ImageProcessor.loadImage(fileInput.files[0]);
+    await updatePreview();
 });
 
-processBtn.addEventListener('click',async ()=>{
-    if(!loadedImage){alert("Please load image");return;}
-    const pinsCount=parseInt(pinCountInput.value);
-    const maxLines=parseInt(maxLinesInput.value);
-    const contrast=parseFloat(contrastInput.value);
-    const brightness=parseFloat(brightnessInput.value);
+contrastInput.addEventListener('input', updatePreview);
+brightnessInput.addEventListener('input', updatePreview);
 
-    const size=800;
-    processedCanvas = ImageProcessor.process(loadedImage,size,contrast,brightness);
-    const pins = PinsGenerator.generate(size/2,size/2,size/2-2,pinsCount);
+generateBtn.addEventListener('click', () => {
+    if (!processedCanvas) { alert("Load image first"); return; }
+    if (worker) { worker.terminate(); worker = null; } // stop previous generation
 
-    const engine = new StringArtEngine(processedCanvas,pins,maxLines,5,(p)=>{
-        progressBar.value=p;
+    const pinsCount = parseInt(pinCountInput.value);
+    const maxLines = parseInt(maxLinesInput.value);
+    pins = PinsGenerator.generate(200, 200, 198, pinsCount);
+
+    const ctx = processedCanvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, processedCanvas.width, processedCanvas.height);
+
+    worker = new Worker('worker.js');
+    worker.postMessage({ cmd: 'start', imageData, pins, maxLines, scale: 5 });
+
+    worker.onmessage = function (e) {
+        if (e.data.type === 'progress') {
+            progressBar.value = e.data.value;
+            lineSequence = e.data.sequence;
+            renderAllVariants(lineSequence);
+        } else if (e.data.type === 'done') {
+            lineSequence = e.data.sequence;
+            renderAllVariants(lineSequence);
+        }
+    }
+});
+
+function renderAllVariants(seq) {
+    renderVariant(seq.slice(0, Math.floor(seq.length * 0.25)), canvasLow, pins);
+    renderVariant(seq.slice(0, Math.floor(seq.length * 0.5)), canvasMedium, pins);
+    renderVariant(seq, canvasHigh, pins);
+}
+
+function renderVariant(seq, canvas, pins) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 0.05;
+    ctx.beginPath();
+    seq.forEach(l => {
+        const p1 = pins[l.from];
+        const p2 = pins[l.to];
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
     });
+    ctx.stroke();
+}
 
-    setTimeout(()=>{
-        engine.generateSequence();
-
-        lineSequence=engine.lineSequence;
-
-        // render 3 quality variants
-        const lowCanvas=engine.renderToCanvas(size);
-        const medCanvas=engine.renderToCanvas(size);
-        const highCanvas=engine.renderToCanvas(size);
-
-        // simulate trimming for quality
-        const trimLow=Math.floor(lineSequence.length*0.25);
-        const trimMed=Math.floor(lineSequence.length*0.5);
-        engine.lineSequence=lineSequence.slice(0,trimLow);
-        const canvasL=engine.renderToCanvas(size);
-        engine.lineSequence=lineSequence.slice(0,trimMed);
-        const canvasM=engine.renderToCanvas(size);
-        engine.lineSequence=lineSequence;
-        const canvasH=engine.renderToCanvas(size);
-
-        [canvasLow,canvasMedium,canvasHigh].forEach((c,idx)=>{
-            const ctx=c.getContext('2d');
-            ctx.clearRect(0,0,c.width,c.height);
-        });
-        canvasLow.getContext('2d').drawImage(canvasL,0,0);
-        canvasMedium.getContext('2d').drawImage(canvasM,0,0);
-        canvasHigh.getContext('2d').drawImage(canvasH,0,0);
-    },10);
-});
-
-exportCsvBtn.addEventListener('click',()=>{
-    if(!lineSequence.length){alert("Generate first");return;}
-    FileUtils.exportCSV(lineSequence);
-});
-exportPngBtn.addEventListener('click',()=>{
-    if(!canvasHigh){alert("Generate first");return;}
-    FileUtils.exportPNG(canvasHigh);
+exportCsvBtn.addEventListener('click', () => {
+    const selected = qualitySelect.value;
+    let seq = [];
+    if (selected === 'low') seq = lineSequence.slice(0, Math.floor(lineSequence.length * 0.25));
+    else if (selected === 'medium') seq = lineSequence.slice(0, Math.floor(lineSequence.length * 0.5));
+    else seq = lineSequence;
+    FileUtils.exportCSV(seq);
 });

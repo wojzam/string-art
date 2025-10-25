@@ -2,18 +2,26 @@ body {
     font-family: sans-serif;
     padding: 20px;
 }
+
 #controls {
     margin-bottom: 10px;
 }
+
 #preview {
     display: flex;
     gap: 10px;
     margin-top: 10px;
 }
+
 canvas {
     border: 1px solid #ccc;
 }
+
 #progressContainer {
     margin-top: 10px;
-    width: 800px;
+    width: 400px;
+}
+
+#export {
+    margin-top: 10px;
 }
