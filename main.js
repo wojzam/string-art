@@ -1,99 +1,199 @@
-import { ImageProcessor } from './core/ImageProcessor.js';
-import { PinsGenerator } from './core/PinsGenerator.js';
-import { FileUtils } from './utils/FileUtils.js';
+import { ImageProcessor } from './ImageProcessor.js';
+import { Renderer } from './Renderer.js';
+import { FileUtils } from './FileUtils.js';
 
-const fileInput = document.getElementById('fileInput');
-const pinCountInput = document.getElementById('pinCount');
-const maxLinesInput = document.getElementById('maxLines');
-const contrastInput = document.getElementById('contrast');
-const brightnessInput = document.getElementById('brightness');
-const generateBtn = document.getElementById('generateBtn');
-const progressBar = document.getElementById('progressBar');
+// --- DOM Elements ---
+const UIElements = {
+    imageUpload: document.getElementById('imageUpload'),
+    contrastSlider: document.getElementById('contrast'),
+    brightnessSlider: document.getElementById('brightness'),
+    pinsInput: document.getElementById('pinsCount'),
+    linesInput: document.getElementById('maxLines'),
+    generateBtn: document.getElementById('generateBtn'),
+    progressBar: document.getElementById('progressBar'),
+    downloadBtn: document.getElementById('downloadBtn'),
+    sourceCanvas: document.getElementById('sourceCanvas'),
+    resultCanvas: document.getElementById('resultCanvas'),
+    linesCount: document.getElementById('linesCount'),
+};
 
-const canvasTarget = document.getElementById('canvasTarget');
-const canvasLow = document.getElementById('canvasLow');
-const canvasMedium = document.getElementById('canvasMedium');
-const canvasHigh = document.getElementById('canvasHigh');
-const qualitySelect = document.getElementById('qualitySelect');
-const exportCsvBtn = document.getElementById('exportCsvBtn');
+const SRC_SIZE = UIElements.sourceCanvas.width;
 
-let loadedImage = null;
-let processedCanvas = null;
-let pins = [], lineSequence = [];
-let worker = null;
+// --- Application State ---
+const state = {
+    originalImage: null,
+    processedImageData: null,
+    sequence: [],
+    pins: [],
+    worker: null,
+    isGenerating: false,
+};
 
-async function updatePreview() {
-    if (!loadedImage) return;
-    processedCanvas = ImageProcessor.process(loadedImage, 400,
-        parseFloat(contrastInput.value), parseFloat(brightnessInput.value));
-    const ctx = canvasTarget.getContext('2d');
-    ctx.clearRect(0, 0, 400, 400);
-    ctx.drawImage(processedCanvas, 0, 0);
-}
+// --- Event Handlers ---
 
-fileInput.addEventListener('change', async () => {
-    if (fileInput.files.length === 0) return;
-    loadedImage = await ImageProcessor.loadImage(fileInput.files[0]);
-    await updatePreview();
-});
+/**
+ * Loads and processes an image file.
+ */
+async function handleImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
 
-contrastInput.addEventListener('input', updatePreview);
-brightnessInput.addEventListener('input', updatePreview);
-
-generateBtn.addEventListener('click', () => {
-    if (!processedCanvas) { alert("Load image first"); return; }
-    if (worker) { worker.terminate(); worker = null; } // stop previous generation
-
-    const pinsCount = parseInt(pinCountInput.value);
-    const maxLines = parseInt(maxLinesInput.value);
-    pins = PinsGenerator.generate(200, 200, 198, pinsCount);
-
-    const ctx = processedCanvas.getContext('2d', { willReadFrequently: true });
-    const imageData = ctx.getImageData(0, 0, processedCanvas.width, processedCanvas.height);
-
-    worker = new Worker('worker.js');
-    worker.postMessage({ cmd: 'start', imageData, pins, maxLines, scale: 5 });
-
-    worker.onmessage = function (e) {
-        if (e.data.type === 'progress') {
-            progressBar.value = e.data.value;
-            lineSequence = e.data.sequence;
-            renderAllVariants(lineSequence);
-        } else if (e.data.type === 'done') {
-            lineSequence = e.data.sequence;
-            renderAllVariants(lineSequence);
-        }
+    try {
+        state.originalImage = await ImageProcessor.loadImage(file);
+        updateSourcePreview();
+    } catch (err) {
+        console.error("Error loading image:", err);
+        alert("Failed to load image.");
     }
-});
-
-function renderAllVariants(seq) {
-    renderVariant(seq.slice(0, Math.floor(seq.length * 0.25)), canvasLow, pins);
-    renderVariant(seq.slice(0, Math.floor(seq.length * 0.5)), canvasMedium, pins);
-    renderVariant(seq, canvasHigh, pins);
 }
 
-function renderVariant(seq, canvas, pins) {
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 0.05;
-    ctx.beginPath();
-    seq.forEach(l => {
-        const p1 = pins[l.from];
-        const p2 = pins[l.to];
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
+/**
+ * Re-applies processing when sliders change.
+ */
+function handleParamsChange() {
+    if (!state.originalImage) return;
+    updateSourcePreview();
+}
+
+/**
+ * Starts or stops the string art generation worker.
+ */
+function handleGenerateClick() {
+    if (state.isGenerating) {
+        stopGeneration();
+    } else {
+        startGeneration();
+    }
+}
+
+/**
+ * Downloads the pin sequence as a TXT file.
+ */
+function handleDownloadClick() {
+    if (state.sequence.length === 0) {
+        alert("Please generate a sequence first.");
+        return;
+    }
+
+    FileUtils.exportTXT(state.sequence, `string_art_sequence.txt`);
+}
+
+// --- Core Logic ---
+
+/**
+ * Uses ImageProcessor to create and display the source preview.
+ */
+function updateSourcePreview() {
+    const contrast = parseFloat(UIElements.contrastSlider.value);
+    const brightness = parseFloat(UIElements.brightnessSlider.value);
+
+    const processedCanvas = ImageProcessor.processBase(
+        state.originalImage,
+        SRC_SIZE,
+        contrast,
+        brightness
+    );
+
+    // Draw to the source canvas
+    const ctx = UIElements.sourceCanvas.getContext('2d');
+    ctx.clearRect(0, 0, SRC_SIZE, SRC_SIZE);
+    ctx.drawImage(processedCanvas, 0, 0);
+
+    // Store the pixel data for the worker
+    state.processedImageData = ctx.getImageData(0, 0, SRC_SIZE, SRC_SIZE);
+}
+
+/**
+ * Initializes the web worker and sends it the image data.
+ */
+function startGeneration() {
+    if (!state.processedImageData) {
+        alert("Please load an image first.");
+        return;
+    }
+
+    // Clear previous results
+    Renderer.clear(UIElements.resultCanvas);
+    UIElements.linesCount.textContent = "0 lines";
+    UIElements.progressBar.value = 0;
+
+    state.worker = new Worker('worker.js', { type: 'module' });
+    state.worker.onmessage = handleWorkerMessage;
+
+    const pinsCount = parseInt(UIElements.pinsInput.value);
+    const maxLines = parseInt(UIElements.linesInput.value);
+
+    const targetOptions = {
+        edgeWeight: 0.3,
+        intensityWeight: 0.7,
+    };
+
+    state.worker.postMessage({
+        cmd: 'generate',
+        imageData: state.processedImageData,
+        pinsCount,
+        maxLines,
+        targetOptions,
     });
-    ctx.stroke();
+
+    setGeneratingState(true);
 }
 
-exportCsvBtn.addEventListener('click', () => {
-    const selected = qualitySelect.value;
-    let seq = [];
-    if (selected === 'low') seq = lineSequence.slice(0, Math.floor(lineSequence.length * 0.25));
-    else if (selected === 'medium') seq = lineSequence.slice(0, Math.floor(lineSequence.length * 0.5));
-    else seq = lineSequence;
-    FileUtils.exportCSV(seq);
-});
+/**
+ * Terminates the worker and resets the UI state.
+ */
+function stopGeneration() {
+    if (!state.worker) return;
+
+    state.worker.terminate();
+    setGeneratingState(false);
+}
+
+/**
+ * Handles messages (progress, done) from the web worker.
+ */
+function handleWorkerMessage(e) {
+    const { type, progress, partial, full } = e.data;
+
+    if (type === 'progress') {
+        UIElements.progressBar.value = progress;
+        // Render partial result
+        if (partial && partial.seq.length > 0) {
+            Renderer.draw(UIElements.resultCanvas, partial.pins, partial.seq);
+            UIElements.linesCount.textContent = `${partial.seq.length} lines`;
+        }
+    } else if (type === 'done') {
+        state.sequence = full.sequence;
+        state.pins = full.pins;
+
+        // Render final result
+        Renderer.draw(UIElements.resultCanvas, state.pins, state.sequence);
+        UIElements.linesCount.textContent = `${state.sequence.length} lines`;
+
+        stopGeneration();
+    }
+}
+
+/**
+ * Toggles the UI state between "generating" and "idle".
+ */
+function setGeneratingState(isGenerating) {
+    state.isGenerating = isGenerating;
+    UIElements.generateBtn.textContent = isGenerating ? 'Stop' : 'Generate';
+    UIElements.progressBar.value = isGenerating ? 0 : 100;
+
+    [
+        UIElements.imageUpload,
+        UIElements.contrastSlider,
+        UIElements.brightnessSlider,
+        UIElements.pinsInput,
+        UIElements.linesInput,
+    ].forEach(el => el.disabled = isGenerating);
+}
+
+// --- Initial Setup ---
+UIElements.imageUpload.addEventListener('change', handleImageUpload);
+UIElements.contrastSlider.addEventListener('input', handleParamsChange);
+UIElements.brightnessSlider.addEventListener('input', handleParamsChange);
+UIElements.generateBtn.addEventListener('click', handleGenerateClick);
+UIElements.downloadBtn.addEventListener('click', handleDownloadClick);

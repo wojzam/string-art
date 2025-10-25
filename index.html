@@ -2,30 +2,38 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>String Art Generator</title>
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+
     <h1>String Art Generator</h1>
 
     <div id="controls">
-        <input type="file" id="fileInput" accept="image/png, image/jpeg">
-        <label for="pinCount">Pins:</label>
-        <input type="number" id="pinCount" value="120" min="4">
-        <label for="maxLines">Max Lines:</label>
-        <input type="number" id="maxLines" value="2000" min="1">
-        <label for="contrast">Contrast:</label>
-        <input type="range" id="contrast" min="0.5" max="2" step="0.01" value="1">
-        <label for="brightness">Brightness:</label>
-        <input type="range" id="brightness" min="-1" max="1" step="0.01" value="0">
-        <button id="generateBtn">Generate / Stop</button>
-    </div>
-
-    <div>
-        <h3>Target Image Preview</h3>
-        <canvas id="canvasTarget" width="400" height="400"></canvas>
+        <label>
+            <span>Load Image:</span>
+            <input type="file" id="imageUpload" accept="image/*">
+        </label>
+        <label>
+            <span>Contrast:</span>
+            <input type="range" id="contrast" min="0" max="2" step="0.1" value="1">
+        </label>
+        <label>
+            <span>Brightness:</span>
+            <input type="range" id="brightness" min="-1" max="1" step="0.1" value="0">
+        </label>
+        <label>
+            <span>Pins:</span>
+            <input type="number" id="pinsCount" value="200" min="50" max="400" step="10">
+        </label>
+        <label>
+            <span>Lines:</span>
+            <input type="number" id="maxLines" value="3000" min="500" max="10000" step="100">
+        </label>
+        <button id="generateBtn">Generate</button>
     </div>
 
     <div id="progressContainer">
@@ -33,31 +41,24 @@
     </div>
 
     <div id="preview">
-        <div>
-            <canvas id="canvasLow" width="400" height="400"></canvas>
-            <div>Low quality</div>
+        <div class="preview-col">
+            <canvas id="sourceCanvas" width="400" height="400"></canvas>
+            <div class="label">Source</div>
+            <div class="count">(Contrast/Brightness Applied)</div>
         </div>
-        <div>
-            <canvas id="canvasMedium" width="400" height="400"></canvas>
-            <div>Medium quality</div>
-        </div>
-        <div>
-            <canvas id="canvasHigh" width="400" height="400"></canvas>
-            <div>High quality</div>
+        <div class="preview-col">
+            <canvas id="resultCanvas" width="400" height="400"></canvas>
+            <div class="label">Result</div>
+            <div id="linesCount" class="count">0 lines</div>
         </div>
     </div>
 
     <div id="export">
-        <label for="qualitySelect">Export sequence for quality:</label>
-        <select id="qualitySelect">
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high" selected>High</option>
-        </select>
-        <button id="exportCsvBtn">Export CSV</button>
+        <button id="downloadBtn">Download Sequence</button>
     </div>
 
     <script type="module" src="main.js"></script>
+
 </body>
 
 </html>
